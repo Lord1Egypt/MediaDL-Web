@@ -274,8 +274,17 @@ def api_stream():
                 if chunk:
                     yield chunk
                     
+        # URL-encode non-ASCII characters for Content-Disposition (RFC 6266)
+        from urllib.parse import quote
+        encoded_filename = quote(filename)
+        # Safe ASCII fallback (remove non-ASCII characters)
+        safe_filename = filename.encode('ascii', 'ignore').decode('ascii').replace('"', '\\"')
+        if not safe_filename or not safe_filename.strip():
+            # If no ascii characters remain, fall back to a generic name
+            safe_filename = "download.mp4"
+            
         response_headers = {
-            'Content-Disposition': f'attachment; filename="{filename}"',
+            'Content-Disposition': f'attachment; filename="{safe_filename}"; filename*=UTF-8\'\'{encoded_filename}',
             'Content-Type': req.headers.get('Content-Type', 'application/octet-stream')
         }
         if req.headers.get('Content-Length'):
