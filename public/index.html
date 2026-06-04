@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MediaDL Web — Universal Browser Media Downloader</title>
+  <meta name="description" content="Download video, audio, and images from 1000+ websites natively in your browser. Powered by yt-dlp.">
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Background Blur Elements -->
+  <div class="bg-blur blur-cyan"></div>
+  <div class="bg-blur blur-magenta"></div>
+
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo">
+        <i data-lucide="download-cloud" class="logo-icon animate-pulse"></i>
+        <h1>Media<span>DL</span> Web</h1>
+      </div>
+      <div class="header-links">
+        <a href="https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md" target="_blank" class="badge-link">
+          <i data-lucide="shield-check"></i> 1000+ Sites Supported
+        </a>
+      </div>
+    </header>
+
+    <main class="app-main">
+      <!-- State 1: Home / Input Form -->
+      <section class="downloader-card">
+        <div class="hero-text">
+          <h2>Download High-Quality Media Instantly</h2>
+          <p>Paste any URL or enter a social media username to extract and download videos, playlists, audio tracks, and images.</p>
+        </div>
+
+        <form id="download-form" class="input-group-wrapper">
+          <div class="input-container">
+            <i data-lucide="link-2" class="input-icon"></i>
+            <input type="text" id="url-input" placeholder="Paste link (YouTube, TikTok, Instagram, Twitter...) or @username" required autocomplete="off">
+            <button type="submit" class="btn-primary" id="fetch-btn">
+              <span>Fetch Media</span>
+              <i data-lucide="arrow-right"></i>
+            </button>
+          </div>
+          
+          <!-- Advanced Cookie Trigger -->
+          <div class="advanced-section">
+            <button type="button" id="toggle-cookies" class="btn-text">
+              <i data-lucide="settings-2"></i>
+              <span>Advanced: Add Cookies for Restricted Content</span>
+            </button>
+            <div id="cookies-wrapper" class="hidden">
+              <p class="field-desc">Paste Netscape cookies.txt content here to bypass age limits, private profiles, or geo-restrictions.</p>
+              <textarea id="cookies-input" placeholder="# Netscape HTTP Cookie File..."></textarea>
+            </div>
+          </div>
+        </form>
+
+        <!-- Quick Platform Shortcuts -->
+        <div class="platform-shortcuts">
+          <span class="shortcuts-title">Supported platforms include:</span>
+          <div class="shortcuts-grid">
+            <div class="platform-tag" data-url="https://youtube.com"><i data-lucide="youtube" class="tag-icon"></i> YouTube</div>
+            <div class="platform-tag" data-url="https://tiktok.com"><i data-lucide="video" class="tag-icon"></i> TikTok</div>
+            <div class="platform-tag" data-url="https://instagram.com"><i data-lucide="instagram" class="tag-icon"></i> Instagram</div>
+            <div class="platform-tag" data-url="https://twitter.com"><i data-lucide="twitter" class="tag-icon"></i> Twitter / X</div>
+            <div class="platform-tag" data-url="https://reddit.com"><i data-lucide="message-square" class="tag-icon"></i> Reddit</div>
+            <div class="platform-tag" data-url="https://soundcloud.com"><i data-lucide="music" class="tag-icon"></i> SoundCloud</div>
+          </div>
+          <a href="https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md" target="_blank" class="all-sites-link">
+            See all 1000+ supported sites <i data-lucide="external-link"></i>
+          </a>
+        </div>
+      </section>
+
+      <!-- State 2: Loading State -->
+      <section id="loading-state" class="status-card hidden">
+        <div class="spinner-container">
+          <div class="spinner"></div>
+          <p id="loading-message">Analyzing link and extracting media details...</p>
+        </div>
+      </section>
+
+      <!-- Error Message Box -->
+      <div id="error-card" class="error-alert hidden">
+        <i data-lucide="alert-triangle" class="error-icon"></i>
+        <div class="error-content">
+          <h4>Extraction Error</h4>
+          <p id="error-message">Could not fetch information for this URL. Please verify the link and try again.</p>
+        </div>
+        <button id="close-error" class="btn-close"><i data-lucide="x"></i></button>
+      </div>
+
+      <!-- State 3: Single Media Result View -->
+      <section id="single-result-card" class="result-card hidden">
+        <div class="result-header">
+          <div class="media-preview-container">
+            <img id="single-thumb" src="" alt="Thumbnail" class="media-thumb">
+            <span id="single-duration" class="media-duration"></span>
+          </div>
+          <div class="media-details">
+            <h3 id="single-title">Media Title</h3>
+            <div class="media-metadata">
+              <span id="single-uploader"><i data-lucide="user"></i> Uploader</span>
+              <span id="single-views"><i data-lucide="eye"></i> 0 views</span>
+              <span id="single-date"><i data-lucide="calendar"></i> Date</span>
+            </div>
+            
+            <div id="download-actions" class="download-action-group">
+              <!-- Format Selector -->
+              <div class="select-wrapper">
+                <i data-lucide="sliders" class="select-icon"></i>
+                <select id="single-format-select">
+                  <option value="best">🎬 Best Quality (Audio + Video)</option>
+                  <option value="1080p">🎬 1080p MP4</option>
+                  <option value="720p">🎬 720p MP4</option>
+                  <option value="480p">🎬 480p MP4</option>
+                  <option value="360p">🎬 360p MP4 (Mobile)</option>
+                  <option value="mp3">🎵 Audio Only — MP3</option>
+                  <option value="m4a">🎵 Audio Only — M4A (Original)</option>
+                </select>
+              </div>
+
+              <div class="button-row">
+                <button id="single-download-btn" class="btn-primary btn-large">
+                  <i data-lucide="download"></i>
+                  <span>Download Media</span>
+                </button>
+                <button id="single-direct-btn" class="btn-secondary">
+                  <i data-lucide="link"></i>
+                  <span>Direct URL</span>
+                </button>
+              </div>
+            </div>
+            
+            <!-- Photo/Image Download View -->
+            <div id="photo-actions" class="photo-action-group hidden">
+              <p class="photo-info-text">This post contains photo/image assets.</p>
+              <div id="photo-previews" class="image-gallery-grid"></div>
+              <button id="download-photos-zip" class="btn-primary btn-large">
+                <i data-lucide="folder-archive"></i>
+                <span>Download as ZIP</span>
+              </button>
+            </div>
+            
+            <!-- Show advanced formats table toggle -->
+            <div class="advanced-formats-toggle">
+              <button id="toggle-adv-formats" class="btn-text">
+                <i data-lucide="list-collapse"></i>
+                <span>Show advanced format table</span>
+              </button>
+              <div id="adv-formats-wrapper" class="hidden">
+                <table class="formats-table">
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Ext</th>
+                      <th>Resolution</th>
+                      <th>VCodec</th>
+                      <th>ACodec</th>
+                      <th>File Size</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="adv-formats-body">
+                    <!-- Dynamic Rows -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- State 4: Playlist / Collection Result View -->
+      <section id="playlist-result-card" class="result-card hidden">
+        <div class="playlist-info-banner">
+          <div class="playlist-meta">
+            <h3 id="playlist-title">Playlist Title</h3>
+            <p id="playlist-desc">0 items · Uploader Name</p>
+          </div>
+          <!-- Playlist Action controls -->
+          <div class="playlist-controls">
+            <div class="select-wrapper">
+              <select id="playlist-format-select">
+                <option value="best">🎬 Best Quality</option>
+                <option value="720p">🎬 720p MP4</option>
+                <option value="mp3">🎵 Audio Only — MP3</option>
+                <option value="m4a">🎵 Audio Only — M4A</option>
+              </select>
+            </div>
+            <button id="playlist-download-selected" class="btn-primary">
+              <i data-lucide="download"></i>
+              <span>Download Selected (0)</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="selection-actions">
+          <button id="playlist-select-all" class="btn-outline btn-small"><i data-lucide="check-square"></i> Select All</button>
+          <button id="playlist-deselect-all" class="btn-outline btn-small"><i data-lucide="square"></i> Deselect All</button>
+        </div>
+
+        <!-- Playlist Items List -->
+        <div id="playlist-items-list" class="playlist-items-container">
+          <!-- Dynamic Items -->
+        </div>
+
+        <!-- Load More Section -->
+        <div id="load-more-wrapper" class="load-more-section hidden">
+          <button id="load-more-btn" class="btn-secondary">
+            <span>Load More Items</span>
+            <i data-lucide="refresh-cw"></i>
+          </button>
+        </div>
+      </section>
+
+      <!-- Platform Username Picker Modal -->
+      <div id="platform-modal" class="modal-overlay hidden">
+        <div class="modal-card">
+          <div class="modal-header">
+            <h3>Select Platform</h3>
+            <button id="close-platform-modal" class="btn-close"><i data-lucide="x"></i></button>
+          </div>
+          <div class="modal-body">
+            <p>Select which platform the username <strong id="picker-username">@username</strong> belongs to:</p>
+            <div class="platform-options-grid">
+              <button class="platform-opt-btn" data-platform="tiktok">
+                <i data-lucide="video" class="opt-icon"></i>
+                <span>TikTok</span>
+              </button>
+              <button class="platform-opt-btn" data-platform="instagram">
+                <i data-lucide="instagram" class="opt-icon"></i>
+                <span>Instagram</span>
+              </button>
+              <button class="platform-opt-btn" data-platform="twitter">
+                <i data-lucide="twitter" class="opt-icon"></i>
+                <span>Twitter / X</span>
+              </button>
+              <button class="platform-opt-btn" data-platform="youtube">
+                <i data-lucide="youtube" class="opt-icon"></i>
+                <span>YouTube</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- State 5: Batch Download Queue Panel -->
+    <div id="queue-panel" class="queue-drawer hidden">
+      <div class="queue-header">
+        <div class="queue-title">
+          <i data-lucide="list-ordered"></i>
+          <h3>Download Queue (<span id="queue-progress-text">0/0</span>)</h3>
+        </div>
+        <div class="queue-actions">
+          <button id="queue-zip-btn" class="btn-outline btn-small hidden" disabled>
+            <i data-lucide="file-archive"></i> Save All as ZIP
+          </button>
+          <button id="queue-minimize" class="btn-text-icon"><i data-lucide="chevron-down"></i></button>
+          <button id="queue-close" class="btn-text-icon"><i data-lucide="x"></i></button>
+        </div>
+      </div>
+      <div class="queue-body">
+        <div id="queue-items-list" class="queue-items-list">
+          <!-- Dynamic queue item rows -->
+        </div>
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <p>Made with ❤️ by <a href="https://github.com/Lord1Egypt" target="_blank">Lord1Egypt</a>. This service runs completely serverless.</p>
+      <div class="footer-links">
+        <a href="https://github.com/yt-dlp/yt-dlp" target="_blank">yt-dlp project</a> · 
+        <a href="https://vercel.com" target="_blank">Hosted on Vercel</a>
+      </div>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
