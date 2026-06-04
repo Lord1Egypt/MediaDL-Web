@@ -1,5 +1,6 @@
 import os
 import json
+import shutil
 import tempfile
 import requests
 from flask import Flask, request, jsonify, Response, stream_with_context
@@ -372,70 +373,139 @@ def api_formats():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+TIKTOK_DOMAINS = ('tiktok.com', 'vm.tiktok.com', 'vt.tiktok.com')
+
+def is_tiktok(url):
+    return any(d in url for d in TIKTOK_DOMAINS)
+
+def _make_download_response(file_path, display_filename, tmp_dir):
+    """Stream a file from disk to the browser, then delete it."""
+    from urllib.parse import quote
+    encoded = quote(display_filename)
+    safe = display_filename.encode('ascii', 'ignore').decode('ascii').replace('"', '\\"')
+    if not safe.strip():
+        safe = 'download' + os.path.splitext(file_path)[1]
+    file_size = os.path.getsize(file_path)
+
+    def generate():
+        try:
+            with open(file_path, 'rb') as f:
+                while True:
+                    chunk = f.read(65536)
+                    if not chunk:
+                        break
+                    yield chunk
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    return Response(stream_with_context(generate()), headers={
+        'Content-Disposition': f'attachment; filename="{safe}"; filename*=UTF-8\'\'{encoded}',
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': str(file_size),
+    })
+
 @app.route('/api/proxy-download', methods=['POST'])
 def api_proxy_download():
-    """Combined extract + stream in ONE function call.
-    TikTok/Instagram CDN URLs are IP-signed at extraction time. Splitting extract
-    and stream across two Vercel instances gives a different IP → 403. This endpoint
-    does both steps in the same invocation so the CDN IP stays consistent."""
+    """Download and serve media without manually proxying CDN URLs.
+
+    TikTok: tikwm.com API returns a CDN URL that works from Vercel (their servers
+    are not IP-blocked by TikTok CDN the way Vercel's IPs are).
+
+    All others: yt-dlp downloads the file to /tmp so it handles all CDN auth
+    internally — no manual CDN proxying needed."""
     if request.is_json:
         data = request.json or {}
     else:
         data = request.form
 
-    url = data.get('url')
+    url = (data.get('url') or '').strip()
     fmt_selection = data.get('format', 'best')
     cookies_text = data.get('cookies') or ''
-    custom_filename = data.get('filename')
 
     if not url:
         return "Missing URL parameter", 400
 
+    audio_only = fmt_selection in ('mp3', 'm4a')
+
+    # ── TikTok: use tikwm.com (their CDN is not blocked on Vercel) ──────────
+    if is_tiktok(url):
+        try:
+            r = requests.post(
+                "https://www.tikwm.com/api/",
+                data={"url": url, "hd": 1},
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=15,
+            )
+            d = r.json()
+            if d.get("code") == 0 and d.get("data"):
+                td = d["data"]
+                cdn_url = td.get("music") if audio_only else (td.get("hdplay") or td.get("play"))
+                title = td.get("title") or "TikTok Video"
+                ext = "mp3" if audio_only else "mp4"
+                filename = f"{title}.{ext}"
+
+                cdn_req = requests.get(cdn_url, stream=True, timeout=30,
+                                       headers={"User-Agent": "Mozilla/5.0"})
+                if cdn_req.status_code < 400:
+                    from urllib.parse import quote
+                    encoded = quote(filename)
+                    safe = filename.encode('ascii', 'ignore').decode('ascii').replace('"', '\\"') or f"tiktok.{ext}"
+
+                    def tiktok_stream():
+                        for chunk in cdn_req.iter_content(chunk_size=65536):
+                            if chunk:
+                                yield chunk
+
+                    return Response(stream_with_context(tiktok_stream()), headers={
+                        'Content-Disposition': f'attachment; filename="{safe}"; filename*=UTF-8\'\'{encoded}',
+                        'Content-Type': cdn_req.headers.get('Content-Type', 'application/octet-stream'),
+                        **({'Content-Length': cdn_req.headers['Content-Length']}
+                           if cdn_req.headers.get('Content-Length') else {}),
+                    })
+        except Exception:
+            pass  # fall through to yt-dlp
+
+    # ── All other platforms: yt-dlp downloads to /tmp, we stream from disk ──
     ydl_format = FORMAT_MAP.get(fmt_selection, fmt_selection)
+    cookie_file = get_cookie_file(cookies_text)
+    tmp_dir = tempfile.mkdtemp()
 
     try:
-        result = extract_direct_url(url, ydl_format, cookies_text if cookies_text else None)
-        direct_url = result.get('direct_url')
-        filename = custom_filename or result.get('filename', 'download.mp4')
-        ydl_headers = result.get('headers', {})
-
-        if not direct_url:
-            return "Could not extract a direct download URL", 404
-
-        # Build CDN request headers; let yt-dlp headers override defaults
-        cdn_headers = get_stream_headers(direct_url)
-        if ydl_headers and isinstance(ydl_headers, dict):
-            cdn_headers.update(ydl_headers)
-
-        req = requests.get(direct_url, headers=cdn_headers, stream=True, timeout=30)
-
-        if req.status_code >= 400:
-            return f"CDN returned {req.status_code}", req.status_code
-
-        from urllib.parse import quote
-        encoded_filename = quote(filename)
-        safe_filename = filename.encode('ascii', 'ignore').decode('ascii').replace('"', '\\"')
-        if not safe_filename.strip():
-            safe_filename = 'download.mp4'
-
-        def generate():
-            for chunk in req.iter_content(chunk_size=8192):
-                if chunk:
-                    yield chunk
-
-        resp_headers = {
-            'Content-Disposition': f'attachment; filename="{safe_filename}"; filename*=UTF-8\'\'{encoded_filename}',
-            'Content-Type': req.headers.get('Content-Type', 'application/octet-stream'),
+        opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'format': ydl_format,
+            'outtmpl': os.path.join(tmp_dir, '%(title)s.%(ext)s'),
+            'geo_bypass': True,
+            'noplaylist': True,
         }
-        if req.headers.get('Content-Length'):
-            resp_headers['Content-Length'] = req.headers['Content-Length']
+        if cookie_file:
+            opts['cookiefile'] = cookie_file
 
-        return Response(stream_with_context(generate()), headers=resp_headers)
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+
+        # Find the produced file (ignore partial/temp files)
+        files = [f for f in os.listdir(tmp_dir)
+                 if not f.endswith(('.part', '.ytdl', '.tmp'))]
+        if not files:
+            return "Download failed — no output file", 500
+
+        actual_file = os.path.join(tmp_dir, files[0])
+        return _make_download_response(actual_file, files[0], tmp_dir)
 
     except DownloadError as e:
-        return f"Extraction failed: {str(e)}", 400
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        return f"Download failed: {str(e)}", 400
     except Exception as e:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
         return f"Error: {str(e)}", 500
+    finally:
+        if cookie_file and os.path.exists(cookie_file):
+            try:
+                os.unlink(cookie_file)
+            except Exception:
+                pass
 
 
 @app.route('/api/batch', methods=['POST'])

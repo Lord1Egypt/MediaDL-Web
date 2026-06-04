@@ -392,16 +392,12 @@ async function downloadFile(url, format, customFilename = null) {
     const filename = customFilename || downloadData.filename;
     const size = downloadData.filesize;
 
-    // Large files from non-restricted CDNs: open directly (browser download)
-    if (size && size > 50 * 1024 * 1024) {
-      window.open(directUrl, '_blank');
-    } else {
-      submitProxyForm('/api/stream', {
-        url: directUrl,
-        filename,
-        ...(downloadData.headers ? { headers: JSON.stringify(downloadData.headers) } : {})
-      });
-    }
+    // All non-restricted CDN files: proxy-stream (no new tab)
+    submitProxyForm('/api/stream', {
+      url: directUrl,
+      filename,
+      ...(downloadData.headers ? { headers: JSON.stringify(downloadData.headers) } : {})
+    });
   } catch (err) {
     showLoading(false);
     showError("Failed to initiate media download.");
@@ -633,15 +629,11 @@ function triggerIndividualQueueDownload(item) {
     return;
   }
 
-  if (item.filesize && item.filesize > 50 * 1024 * 1024) {
-    window.open(item.direct_url, '_blank');
-  } else {
-    submitProxyForm('/api/stream', {
-      url: item.direct_url,
-      filename,
-      ...(item.headers ? { headers: JSON.stringify(item.headers) } : {})
-    });
-  }
+  submitProxyForm('/api/stream', {
+    url: item.direct_url,
+    filename,
+    ...(item.headers ? { headers: JSON.stringify(item.headers) } : {})
+  });
 }
 
 // Render the Queue drawer interface list rows
