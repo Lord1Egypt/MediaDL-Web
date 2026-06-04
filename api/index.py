@@ -158,7 +158,7 @@ def api_info():
                     if 'youtube' in url or 'youtu.be' in url:
                         entry_url = f"https://www.youtube.com/watch?v={entry_id}"
                     elif 'tiktok' in url:
-                        entry_url = f"https://www.tiktok.com/embed/{entry_id}"
+                        entry_url = f"https://www.tiktok.com/video/{entry_id}"
                     elif 'instagram' in url:
                         entry_url = f"https://www.instagram.com/p/{entry_id}/"
                     else:
