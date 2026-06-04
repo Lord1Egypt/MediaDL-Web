@@ -255,6 +255,31 @@ def api_download():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+def get_stream_headers(media_url):
+    from urllib.parse import urlparse
+    parsed = urlparse(media_url)
+    domain = parsed.netloc.lower()
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': '*/*',
+        'Accept-Encoding': 'identity;q=1, *;q=0',
+        'Accept-Language': 'en-US,en;q=0.9',
+    }
+    
+    if 'tiktok' in domain:
+        headers['Referer'] = 'https://www.tiktok.com/'
+    elif 'instagram' in domain:
+        headers['Referer'] = 'https://www.instagram.com/'
+    elif 'twitter' in domain or 'twimg' in domain or 'x.com' in domain:
+        headers['Referer'] = 'https://twitter.com/'
+    elif 'youtube' in domain or 'googlevideo' in domain:
+        headers['Referer'] = 'https://www.youtube.com/'
+    else:
+        headers['Referer'] = f"https://{parsed.netloc}/"
+        
+    return headers
+
 @app.route('/api/stream')
 def api_stream():
     media_url = request.args.get('url')
@@ -264,11 +289,13 @@ def api_stream():
         return "Missing URL", 400
         
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
+        headers = get_stream_headers(media_url)
         req = requests.get(media_url, headers=headers, stream=True)
         
+        # Check if the CDN request failed (e.g. 403 Forbidden)
+        if req.status_code >= 400:
+            return f"CDN returned status error: {req.status_code}", req.status_code
+            
         def generate():
             for chunk in req.iter_content(chunk_size=8192):
                 if chunk:
