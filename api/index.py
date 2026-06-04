@@ -65,12 +65,19 @@ def get_yt_dlp_info(url, cookies_text=None, extract_flat=True, offset=0):
 
 def extract_direct_url(url, ydl_format, cookies_text=None):
     cookie_file = get_cookie_file(cookies_text)
-    
+
     opts = {
         'quiet': True,
         'no_warnings': True,
         'format': ydl_format,
         'geo_bypass': True,
+        # iOS/Android clients bypass YouTube's "Sign in to confirm you're not a bot"
+        # that fires on Vercel's AWS IPs when using the default web client.
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['ios', 'android', 'tv_embedded'],
+            }
+        },
     }
     if cookie_file:
         opts['cookiefile'] = cookie_file
@@ -258,7 +265,11 @@ def api_download():
         result = extract_direct_url(url, ydl_format, cookies_text)
         return jsonify(result)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        msg = str(e)
+        if 'Sign in' in msg or 'bot' in msg.lower() or 'confirm' in msg.lower():
+            msg = ("YouTube requires sign-in to download this video from a server. "
+                   "Paste your YouTube cookies.txt in the Advanced section and try again.")
+        return jsonify({"error": msg}), 500
 
 def get_stream_headers(media_url):
     from urllib.parse import urlparse
@@ -478,6 +489,11 @@ def api_proxy_download():
             'outtmpl': os.path.join(tmp_dir, '%(title)s.%(ext)s'),
             'geo_bypass': True,
             'noplaylist': True,
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['ios', 'android', 'tv_embedded'],
+                }
+            },
         }
         if cookie_file:
             opts['cookiefile'] = cookie_file
