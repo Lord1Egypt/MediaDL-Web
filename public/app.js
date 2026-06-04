@@ -233,8 +233,25 @@ function showLoading(show, message = "") {
 
 // Manage errors
 function showError(msg) {
-  errorMessage.textContent = msg;
+  const errorContent = errorCard.querySelector('.error-content');
+  errorContent.querySelector('h4').textContent = 'Extraction Error';
+  errorContent.querySelector('p').textContent = msg;
   errorCard.classList.remove('hidden');
+  errorCard.style.borderLeftColor = 'var(--text-error)';
+  errorCard.querySelector('.error-icon').setAttribute('data-lucide', 'alert-triangle');
+  lucide.createIcons();
+  window.scrollTo({ top: errorCard.offsetTop - 50, behavior: 'smooth' });
+}
+
+// Manage tips/success notifications
+function showTip(title, text) {
+  const errorContent = errorCard.querySelector('.error-content');
+  errorContent.querySelector('h4').textContent = title;
+  errorContent.querySelector('p').textContent = text;
+  errorCard.classList.remove('hidden');
+  errorCard.style.borderLeftColor = 'var(--accent-cyan)';
+  errorCard.querySelector('.error-icon').setAttribute('data-lucide', 'info');
+  lucide.createIcons();
   window.scrollTo({ top: errorCard.offsetTop - 50, behavior: 'smooth' });
 }
 
@@ -332,10 +349,22 @@ async function downloadFile(url, format, customFilename = null) {
     const filename = customFilename || downloadData.filename;
     const size = downloadData.filesize;
     
+    const lowerUrl = directUrl.toLowerCase();
+    const isRestrictedCDN = lowerUrl.includes('tiktok.com') || 
+                            lowerUrl.includes('instagram.com') || 
+                            lowerUrl.includes('googlevideo.com') || 
+                            lowerUrl.includes('fbcdn.net') ||
+                            lowerUrl.includes('twimg.com') ||
+                            lowerUrl.includes('x.com') ||
+                            lowerUrl.includes('twitter.com');
+    
     // Redirect or Proxy
-    if (size && size > 50 * 1024 * 1024) {
-      // Large file: open directly in new window
+    if (isRestrictedCDN || (size && size > 50 * 1024 * 1024)) {
+      // Open directly in new window
       window.open(directUrl, '_blank');
+      if (isRestrictedCDN) {
+        showTip("Video Opened In New Tab", "TikTok/Instagram/Twitter CDN prevents server-side downloads. Please right-click or long-press the video in the new tab and select 'Save Video As'.");
+      }
     } else {
       // Small file or unknown size: proxy through stream endpoint to force download dialog
       const streamUrl = `/api/stream?url=${encodeURIComponent(directUrl)}&filename=${encodeURIComponent(filename)}`;
@@ -566,10 +595,21 @@ function updateQueueItemState(data) {
 // Trigger single completed queue item file download
 function triggerIndividualQueueDownload(item) {
   const filename = item.filename || 'download.mp4';
+  const lowerUrl = item.direct_url.toLowerCase();
+  const isRestrictedCDN = lowerUrl.includes('tiktok.com') || 
+                          lowerUrl.includes('instagram.com') || 
+                          lowerUrl.includes('googlevideo.com') || 
+                          lowerUrl.includes('fbcdn.net') ||
+                          lowerUrl.includes('twimg.com') ||
+                          lowerUrl.includes('x.com') ||
+                          lowerUrl.includes('twitter.com');
   
-  if (item.filesize && item.filesize > 50 * 1024 * 1024) {
+  if (isRestrictedCDN || (item.filesize && item.filesize > 50 * 1024 * 1024)) {
     // Open in new tab
     window.open(item.direct_url, '_blank');
+    if (isRestrictedCDN) {
+      showTip("Video Opened In New Tab", "TikTok/Instagram/Twitter CDN prevents server-side downloads. Please right-click or long-press the video in the new tab and select 'Save Video As'.");
+    }
   } else {
     // Proxy stream
     const streamUrl = `/api/stream?url=${encodeURIComponent(item.direct_url)}&filename=${encodeURIComponent(filename)}`;
