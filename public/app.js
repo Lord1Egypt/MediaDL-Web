@@ -352,28 +352,40 @@ async function downloadFile(url, format, customFilename = null) {
     const lowerUrl = directUrl.toLowerCase();
     const isRestrictedCDN = lowerUrl.includes('tiktok.com') || 
                             lowerUrl.includes('instagram.com') || 
-                            lowerUrl.includes('googlevideo.com') || 
                             lowerUrl.includes('fbcdn.net') ||
-                            lowerUrl.includes('twimg.com') ||
-                            lowerUrl.includes('x.com') ||
-                            lowerUrl.includes('twitter.com');
+                            lowerUrl.includes('twimg.com');
     
-    // Redirect or Proxy
-    if (isRestrictedCDN || (size && size > 50 * 1024 * 1024)) {
-      // Open directly in new window
+    // We must proxy restricted CDNs to pass headers and bypass 403.
+    // We also proxy files smaller than 50MB to force the download dialog.
+    if (!isRestrictedCDN && size && size > 50 * 1024 * 1024) {
       window.open(directUrl, '_blank');
-      if (isRestrictedCDN) {
-        showTip("Video Opened In New Tab", "TikTok/Instagram/Twitter CDN prevents server-side downloads. Please right-click or long-press the video in the new tab and select 'Save Video As'.");
-      }
     } else {
-      // Small file or unknown size: proxy through stream endpoint to force download dialog
-      const streamUrl = `/api/stream?url=${encodeURIComponent(directUrl)}&filename=${encodeURIComponent(filename)}`;
-      const link = document.createElement('a');
-      link.href = streamUrl;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      // Proxy stream via POST form submission to pass headers
+      const form = document.createElement('form');
+      form.method = 'POST';
+      form.action = '/api/stream';
+      form.style.display = 'none';
+      
+      const urlInput = document.createElement('input');
+      urlInput.name = 'url';
+      urlInput.value = directUrl;
+      form.appendChild(urlInput);
+      
+      const fileInput = document.createElement('input');
+      fileInput.name = 'filename';
+      fileInput.value = filename;
+      form.appendChild(fileInput);
+      
+      if (downloadData.headers) {
+        const headersInput = document.createElement('input');
+        headersInput.name = 'headers';
+        headersInput.value = JSON.stringify(downloadData.headers);
+        form.appendChild(headersInput);
+      }
+      
+      document.body.appendChild(form);
+      form.submit();
+      document.body.removeChild(form);
     }
   } catch (err) {
     showLoading(false);
@@ -604,21 +616,34 @@ function triggerIndividualQueueDownload(item) {
                           lowerUrl.includes('x.com') ||
                           lowerUrl.includes('twitter.com');
   
-  if (isRestrictedCDN || (item.filesize && item.filesize > 50 * 1024 * 1024)) {
-    // Open in new tab
+  if (!isRestrictedCDN && item.filesize && item.filesize > 50 * 1024 * 1024) {
     window.open(item.direct_url, '_blank');
-    if (isRestrictedCDN) {
-      showTip("Video Opened In New Tab", "TikTok/Instagram/Twitter CDN prevents server-side downloads. Please right-click or long-press the video in the new tab and select 'Save Video As'.");
-    }
   } else {
-    // Proxy stream
-    const streamUrl = `/api/stream?url=${encodeURIComponent(item.direct_url)}&filename=${encodeURIComponent(filename)}`;
-    const link = document.createElement('a');
-    link.href = streamUrl;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/api/stream';
+    form.style.display = 'none';
+    
+    const urlInput = document.createElement('input');
+    urlInput.name = 'url';
+    urlInput.value = item.direct_url;
+    form.appendChild(urlInput);
+    
+    const fileInput = document.createElement('input');
+    fileInput.name = 'filename';
+    fileInput.value = filename;
+    form.appendChild(fileInput);
+    
+    if (item.headers) {
+      const headersInput = document.createElement('input');
+      headersInput.name = 'headers';
+      headersInput.value = JSON.stringify(item.headers);
+      form.appendChild(headersInput);
+    }
+    
+    document.body.appendChild(form);
+    form.submit();
+    document.body.removeChild(form);
   }
 }
 

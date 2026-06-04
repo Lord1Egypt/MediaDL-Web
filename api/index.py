@@ -83,6 +83,7 @@ def extract_direct_url(url, ydl_format, cookies_text=None):
             ext = info.get('ext') or 'mp4'
             
             # If no single direct URL is returned (e.g. combined audio+video formats with no merge)
+            headers = info.get('http_headers') or {}
             if not direct_url:
                 formats = info.get('formats', [])
                 # Find combined formats
@@ -94,6 +95,7 @@ def extract_direct_url(url, ydl_format, cookies_text=None):
                     direct_url = best_combined.get('url')
                     filesize = best_combined.get('filesize') or best_combined.get('filesize_approx')
                     ext = best_combined.get('ext') or ext
+                    headers = best_combined.get('http_headers') or headers
                 elif formats:
                     # Fallback to the last available format with a URL
                     valid_formats = [f for f in formats if f.get('url')]
@@ -101,11 +103,13 @@ def extract_direct_url(url, ydl_format, cookies_text=None):
                         direct_url = valid_formats[-1].get('url')
                         filesize = valid_formats[-1].get('filesize') or valid_formats[-1].get('filesize_approx')
                         ext = valid_formats[-1].get('ext') or ext
+                        headers = valid_formats[-1].get('http_headers') or headers
                         
             return {
                 "direct_url": direct_url,
                 "filename": f"{info.get('title') or 'video'}.{ext}",
-                "filesize": filesize
+                "filesize": filesize,
+                "headers": headers
             }
     finally:
         if cookie_file and os.path.exists(cookie_file):
@@ -280,16 +284,30 @@ def get_stream_headers(media_url):
         
     return headers
 
-@app.route('/api/stream')
+@app.route('/api/stream', methods=['GET', 'POST'])
 def api_stream():
-    media_url = request.args.get('url')
-    filename = request.args.get('filename', 'download')
+    if request.method == 'POST':
+        media_url = request.form.get('url')
+        filename = request.form.get('filename', 'download')
+        req_headers_str = request.form.get('headers')
+    else:
+        media_url = request.args.get('url')
+        filename = request.args.get('filename', 'download')
+        req_headers_str = request.args.get('headers')
     
     if not media_url:
         return "Missing URL", 400
         
     try:
         headers = get_stream_headers(media_url)
+        if req_headers_str:
+            try:
+                custom_headers = json.loads(req_headers_str)
+                if isinstance(custom_headers, dict):
+                    headers.update(custom_headers)
+            except Exception:
+                pass
+                
         req = requests.get(media_url, headers=headers, stream=True)
         
         # Check if the CDN request failed (e.g. 403 Forbidden)
@@ -373,7 +391,8 @@ def api_batch():
                     "status": "done",
                     "direct_url": result["direct_url"],
                     "filename": result["filename"],
-                    "filesize": result["filesize"]
+                    "filesize": result["filesize"],
+                    "headers": result.get("headers", {})
                 }
             except Exception as e:
                 response_data = {
