@@ -527,92 +527,62 @@ playlistDownloadSelectedBtn.addEventListener('click', () => {
   startBatchDownloads(selectedItems, format);
 });
 
-// Queue list rendering & SSE stream reader
+// Frontend-driven queue: each item calls its own short API endpoint so we never
+// hit Vercel's 60-second timeout from a single long-running batch function.
 async function startBatchDownloads(items, format) {
   activeQueueItems = items.map(item => ({
     ...item,
-    status: 'queued', // queued, working, done, error
+    status: 'queued',
     direct_url: '',
     filename: '',
+    headers: null,
+    filesize: null,
     error: ''
   }));
-  
+
   renderQueueUI();
   queuePanel.classList.remove('hidden');
   queuePanel.classList.remove('minimized');
-  
-  const cookiesText = cookiesInput.value.trim();
-  const batchPayload = {
-    items: items.map(item => ({ url: item.url, format })),
-    cookies: cookiesText
-  };
-  
-  try {
-    const response = await fetch('/api/batch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(batchPayload)
-    });
-    
-    if (!response.body) {
-      alert("Browser does not support streaming downloads.");
-      return;
-    }
-    
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder("utf-8");
-    let buffer = "";
-    
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      
-      buffer += decoder.decode(value, { stream: true });
-      const events = buffer.split("\n\n");
-      buffer = events.pop(); // Hold onto final chunk if it is partial
-      
-      for (const event of events) {
-        if (event.trim().startsWith("data: ")) {
-          try {
-            const data = JSON.parse(event.trim().substring(6));
-            updateQueueItemState(data);
-          } catch (e) {
-            console.error("Error parsing SSE event data:", e);
-          }
-        }
-      }
-    }
-  } catch (err) {
-    console.error("SSE stream processing error:", err);
-    activeQueueItems.forEach(item => {
-      if (item.status === 'queued' || item.status === 'working') {
-        item.status = 'error';
-        item.error = 'Batch connection interrupted';
-      }
-    });
-    renderQueueUI();
-  }
-}
 
-// Update single item state in queue from SSE response
-function updateQueueItemState(data) {
-  const item = activeQueueItems.find(i => i.url === data.url);
-  if (!item) return;
-  
-  if (data.status === 'done') {
-    item.status = 'done';
-    item.direct_url = data.direct_url;
-    item.filename = data.filename;
-    item.filesize = data.filesize;
-    
-    // Auto-trigger browser download for completed item
-    triggerIndividualQueueDownload(item);
-  } else {
-    item.status = 'error';
-    item.error = data.error || 'Failed to extract';
+  const cookiesText = cookiesInput.value.trim();
+
+  for (let i = 0; i < activeQueueItems.length; i++) {
+    const item = activeQueueItems[i];
+    item.status = 'working';
+    renderQueueUI();
+
+    try {
+      if (isRestrictedSource(item.url)) {
+        // TikTok / Instagram / etc: proxy-download handles everything at save time
+        item.status = 'done';
+        item.filename = (item.title || 'download').replace(/[/\\?%*:|"<>]/g, '') + '.mp4';
+      } else {
+        // YouTube and other open CDNs: extract the direct URL now
+        const res = await fetch('/api/download', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: item.url, format, cookies: cookiesText })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        item.status = 'done';
+        item.direct_url = data.direct_url;
+        item.filename = data.filename || (item.title || 'download') + '.mp4';
+        item.filesize = data.filesize;
+        item.headers = data.headers;
+      }
+    } catch (e) {
+      item.status = 'error';
+      item.error = e.message || 'Failed to extract';
+    }
+
+    renderQueueUI();
+
+    // Brief pause between items — prevents YouTube rate-limiting on rapid bursts
+    if (i < activeQueueItems.length - 1) {
+      await new Promise(r => setTimeout(r, 600));
+    }
   }
-  
-  renderQueueUI();
 }
 
 // Trigger single completed queue item file download
