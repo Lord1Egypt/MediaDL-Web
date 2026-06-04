@@ -372,6 +372,72 @@ def api_formats():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/proxy-download', methods=['POST'])
+def api_proxy_download():
+    """Combined extract + stream in ONE function call.
+    TikTok/Instagram CDN URLs are IP-signed at extraction time. Splitting extract
+    and stream across two Vercel instances gives a different IP → 403. This endpoint
+    does both steps in the same invocation so the CDN IP stays consistent."""
+    if request.is_json:
+        data = request.json or {}
+    else:
+        data = request.form
+
+    url = data.get('url')
+    fmt_selection = data.get('format', 'best')
+    cookies_text = data.get('cookies') or ''
+    custom_filename = data.get('filename')
+
+    if not url:
+        return "Missing URL parameter", 400
+
+    ydl_format = FORMAT_MAP.get(fmt_selection, fmt_selection)
+
+    try:
+        result = extract_direct_url(url, ydl_format, cookies_text if cookies_text else None)
+        direct_url = result.get('direct_url')
+        filename = custom_filename or result.get('filename', 'download.mp4')
+        ydl_headers = result.get('headers', {})
+
+        if not direct_url:
+            return "Could not extract a direct download URL", 404
+
+        # Build CDN request headers; let yt-dlp headers override defaults
+        cdn_headers = get_stream_headers(direct_url)
+        if ydl_headers and isinstance(ydl_headers, dict):
+            cdn_headers.update(ydl_headers)
+
+        req = requests.get(direct_url, headers=cdn_headers, stream=True, timeout=30)
+
+        if req.status_code >= 400:
+            return f"CDN returned {req.status_code}", req.status_code
+
+        from urllib.parse import quote
+        encoded_filename = quote(filename)
+        safe_filename = filename.encode('ascii', 'ignore').decode('ascii').replace('"', '\\"')
+        if not safe_filename.strip():
+            safe_filename = 'download.mp4'
+
+        def generate():
+            for chunk in req.iter_content(chunk_size=8192):
+                if chunk:
+                    yield chunk
+
+        resp_headers = {
+            'Content-Disposition': f'attachment; filename="{safe_filename}"; filename*=UTF-8\'\'{encoded_filename}',
+            'Content-Type': req.headers.get('Content-Type', 'application/octet-stream'),
+        }
+        if req.headers.get('Content-Length'):
+            resp_headers['Content-Length'] = req.headers['Content-Length']
+
+        return Response(stream_with_context(generate()), headers=resp_headers)
+
+    except DownloadError as e:
+        return f"Extraction failed: {str(e)}", 400
+    except Exception as e:
+        return f"Error: {str(e)}", 500
+
+
 @app.route('/api/batch', methods=['POST'])
 def api_batch():
     data = request.json or {}

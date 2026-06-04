@@ -326,11 +326,54 @@ function displaySingleResult(data) {
   window.scrollTo({ top: singleResultCard.offsetTop - 50, behavior: 'smooth' });
 }
 
+// Platforms whose CDN URLs are IP-signed at extraction time; must use proxy-download
+function isRestrictedSource(sourceUrl) {
+  const lower = (sourceUrl || '').toLowerCase();
+  return lower.includes('tiktok.com') ||
+         lower.includes('instagram.com') ||
+         lower.includes('facebook.com') ||
+         lower.includes('fb.com') ||
+         lower.includes('twitter.com') ||
+         lower.includes('x.com');
+}
+
+// Submit a hidden form to trigger a streaming download response
+function submitProxyForm(action, fields) {
+  const form = document.createElement('form');
+  form.method = 'POST';
+  form.action = action;
+  form.style.display = 'none';
+  Object.entries(fields).forEach(([name, value]) => {
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = name;
+    input.value = value || '';
+    form.appendChild(input);
+  });
+  document.body.appendChild(form);
+  form.submit();
+  setTimeout(() => document.body.removeChild(form), 1000);
+}
+
 // Download file trigger helper
 async function downloadFile(url, format, customFilename = null) {
-  showLoading(true, "Preparing download link...");
   const cookiesText = cookiesInput.value.trim();
-  
+
+  // For TikTok/Instagram/Facebook/Twitter: extract + stream in ONE Vercel call
+  // so the CDN IP stays consistent (separate calls land on different instances → 403)
+  if (isRestrictedSource(url)) {
+    showLoading(false);
+    submitProxyForm('/api/proxy-download', {
+      url,
+      format,
+      cookies: cookiesText,
+      ...(customFilename ? { filename: customFilename } : {})
+    });
+    return;
+  }
+
+  showLoading(true, "Preparing download link...");
+
   try {
     const res = await fetch('/api/download', {
       method: 'POST',
@@ -339,53 +382,25 @@ async function downloadFile(url, format, customFilename = null) {
     });
     const downloadData = await res.json();
     showLoading(false);
-    
+
     if (downloadData.error) {
       showError(downloadData.error);
       return;
     }
-    
+
     const directUrl = downloadData.direct_url;
     const filename = customFilename || downloadData.filename;
     const size = downloadData.filesize;
-    
-    const lowerUrl = directUrl.toLowerCase();
-    const isRestrictedCDN = lowerUrl.includes('tiktok.com') || 
-                            lowerUrl.includes('instagram.com') || 
-                            lowerUrl.includes('fbcdn.net') ||
-                            lowerUrl.includes('twimg.com');
-    
-    // We must proxy restricted CDNs to pass headers and bypass 403.
-    // We also proxy files smaller than 50MB to force the download dialog.
-    if (!isRestrictedCDN && size && size > 50 * 1024 * 1024) {
+
+    // Large files from non-restricted CDNs: open directly (browser download)
+    if (size && size > 50 * 1024 * 1024) {
       window.open(directUrl, '_blank');
     } else {
-      // Proxy stream via POST form submission to pass headers
-      const form = document.createElement('form');
-      form.method = 'POST';
-      form.action = '/api/stream';
-      form.style.display = 'none';
-      
-      const urlInput = document.createElement('input');
-      urlInput.name = 'url';
-      urlInput.value = directUrl;
-      form.appendChild(urlInput);
-      
-      const fileInput = document.createElement('input');
-      fileInput.name = 'filename';
-      fileInput.value = filename;
-      form.appendChild(fileInput);
-      
-      if (downloadData.headers) {
-        const headersInput = document.createElement('input');
-        headersInput.name = 'headers';
-        headersInput.value = JSON.stringify(downloadData.headers);
-        form.appendChild(headersInput);
-      }
-      
-      document.body.appendChild(form);
-      form.submit();
-      document.body.removeChild(form);
+      submitProxyForm('/api/stream', {
+        url: directUrl,
+        filename,
+        ...(downloadData.headers ? { headers: JSON.stringify(downloadData.headers) } : {})
+      });
     }
   } catch (err) {
     showLoading(false);
@@ -607,43 +622,25 @@ function updateQueueItemState(data) {
 // Trigger single completed queue item file download
 function triggerIndividualQueueDownload(item) {
   const filename = item.filename || 'download.mp4';
-  const lowerUrl = item.direct_url.toLowerCase();
-  const isRestrictedCDN = lowerUrl.includes('tiktok.com') || 
-                          lowerUrl.includes('instagram.com') || 
-                          lowerUrl.includes('googlevideo.com') || 
-                          lowerUrl.includes('fbcdn.net') ||
-                          lowerUrl.includes('twimg.com') ||
-                          lowerUrl.includes('x.com') ||
-                          lowerUrl.includes('twitter.com');
-  
-  if (!isRestrictedCDN && item.filesize && item.filesize > 50 * 1024 * 1024) {
+
+  // For restricted platforms, re-extract + stream in one call using the original URL
+  if (isRestrictedSource(item.url)) {
+    submitProxyForm('/api/proxy-download', {
+      url: item.url,
+      format: 'best',
+      filename
+    });
+    return;
+  }
+
+  if (item.filesize && item.filesize > 50 * 1024 * 1024) {
     window.open(item.direct_url, '_blank');
   } else {
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = '/api/stream';
-    form.style.display = 'none';
-    
-    const urlInput = document.createElement('input');
-    urlInput.name = 'url';
-    urlInput.value = item.direct_url;
-    form.appendChild(urlInput);
-    
-    const fileInput = document.createElement('input');
-    fileInput.name = 'filename';
-    fileInput.value = filename;
-    form.appendChild(fileInput);
-    
-    if (item.headers) {
-      const headersInput = document.createElement('input');
-      headersInput.name = 'headers';
-      headersInput.value = JSON.stringify(item.headers);
-      form.appendChild(headersInput);
-    }
-    
-    document.body.appendChild(form);
-    form.submit();
-    document.body.removeChild(form);
+    submitProxyForm('/api/stream', {
+      url: item.direct_url,
+      filename,
+      ...(item.headers ? { headers: JSON.stringify(item.headers) } : {})
+    });
   }
 }
 
